@@ -1,5 +1,5 @@
 ngx_addon_name=ngx_http_lua_client_module
-HTTP_LUA_UPSTREAM_SRCS="$ngx_addon_dir/src/ngx_http_lua_client_module.c"
+HTTP_LUA_CLIENT_SRCS="$ngx_addon_dir/src/ngx_http_lua_client_module.c"
 lua_src_path="../ngx_lua-0.10.5/src"
 
 if test -n "$ngx_module_link"; then

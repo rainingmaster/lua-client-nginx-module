@@ -14,6 +14,7 @@
 #include "ngx_http_lua_clfactory.h"
 #include "ngx_http_lua_util.h"
 #include "ngx_http_lua_exception.h"
+#include "ngx_http_lua_common.h"
 
 #define ERR_STR "error!"
 #define ERR_LEN sizeof(ERR_STR)
@@ -83,7 +84,7 @@ static u_char * ngx_http_lua_log_client_error(ngx_log_t *log, ngx_uint_t level,
     u_char *buf, size_t len);
 ngx_int_t ngx_http_lua_client_read(ngx_http_lua_client_ctx_connect_t *cc,
     ngx_int_t fd);
-ngx_int_t ngx_http_lua_client_init_worker(ngx_cycle_t *cycle)
+ngx_int_t ngx_http_lua_client_init_worker(ngx_cycle_t *cycle);
 ngx_int_t ngx_http_lua_client_init_fake_conf(ngx_cycle_t *cycle,
     ngx_http_lua_client_ctx_t *cctx);
 ngx_int_t ngx_http_lua_client_handler_code(ngx_http_lua_client_ctx_connect_t *cc,
@@ -559,7 +560,7 @@ ngx_http_lua_client_handler_code(ngx_http_lua_client_ctx_connect_t *cc,
     lua_State *L, ngx_http_request_t *r)
 {
     ngx_int_t                    rc;
-    u_char                      *err;
+    char                        *err;
 
     rc = ngx_http_lua_clfactory_loadbuffer(L, (char *) cc->code_src.data, cc->code_src.len, "push code");
 
