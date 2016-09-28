@@ -2,6 +2,9 @@ ngx_addon_name=ngx_http_lua_client_module
 HTTP_LUA_CLIENT_SRCS="$ngx_addon_dir/src/ngx_http_lua_client_module.c"
 lua_src_path="../ngx_lua-0.10.5/src"
 
+# need ngx_lua src code
+CORE_INCS="$CORE_INCS $lua_src_path"
+
 if test -n "$ngx_module_link"; then
     ngx_module_type=HTTP
     ngx_module_name=$ngx_addon_name
@@ -12,6 +15,6 @@ else
     HTTP_MODULES="$HTTP_MODULES $ngx_addon_name"
     NGX_ADDON_SRCS="$NGX_ADDON_SRCS $HTTP_LUA_CLIENT_SRCS"
 
-    CORE_INCS="$CORE_INCS $lua_src_path $ngx_module_incs"
+    CORE_INCS="$CORE_INCS $ngx_module_incs"
     CORE_LIBS="$CORE_LIBS $ngx_module_libs"
 fi
