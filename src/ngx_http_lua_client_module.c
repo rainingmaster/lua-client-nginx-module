@@ -16,24 +16,6 @@
 #include "ngx_http_lua_exception.h"
 #include "ngx_http_lua_common.h"
 
-#define ERR_STR "error!"
-#define ERR_LEN sizeof(ERR_STR)
-#define BUFFER_SIZE 4096
-
-
-#define NGX_HTTP_LUA_CLI_FILE         0x00000001
-#define NGX_HTTP_LUA_CLI_CODE         0x00000002
-
-#define NGX_HTTP_LUA_CLI_DEL_CONN(c)    \
-    if (ngx_del_conn) { \
-        ngx_del_conn(c, 0); \
-    } else { \
-        ngx_del_event(c->read, NGX_READ_EVENT, 0); \
-    } \
-    if (c->fd > 0) { \
-        ngx_close_socket(c->fd); \
-    }
-
 
 ngx_module_t ngx_http_lua_client_module;
 
@@ -46,9 +28,6 @@ typedef struct {
     ngx_log_t    *log;
     ngx_pool_t   *pool;
     lua_State    *lua;
-
-    ngx_uint_t    type;
-    ngx_str_t     code_src;
 
     ngx_int_t              fd;
     ngx_connection_t      *connection;
@@ -70,7 +49,6 @@ typedef struct {
     void        *data;
 
     ngx_pool_t   *pool;
-    ngx_log_t    *log;
     ngx_chain_t  *log_chain;
 
     ngx_uint_t    type;
@@ -80,6 +58,26 @@ typedef struct {
     ngx_http_request_t    *r;
 
 } ngx_http_lua_client_ctx_connect_t;
+
+
+#define LOG_STR "logs:\n"
+#define LOG_LEN sizeof(LOG_STR)
+#define BUFFER_SIZE 4096
+#define HEADER_SIZE sizeof(ngx_http_lua_client_header)
+
+
+#define NGX_HTTP_LUA_CLI_FILE         0x00000001
+#define NGX_HTTP_LUA_CLI_CODE         0x00000002
+
+#define NGX_HTTP_LUA_CLI_DEL_CONN(c)    \
+    if (ngx_del_conn) { \
+        ngx_del_conn(c, 0); \
+    } else { \
+        ngx_del_event(c->read, NGX_READ_EVENT, 0); \
+    } \
+    if (c->fd > 0) { \
+        ngx_close_socket(c->fd); \
+    }
 
 
 static void *ngx_http_lua_client_create_main_conf(ngx_conf_t *cf);
@@ -97,7 +95,6 @@ static ngx_int_t ngx_http_lua_client_by_chunk(lua_State *L,
     ngx_http_request_t *r);
 ngx_chain_t *ngx_http_lua_client_send_chain(ngx_connection_t *c,
     ngx_chain_t *in, off_t limit);
-ngx_int_t ngx_http_lua_client_sender(ngx_int_t fd, u_char *s, ngx_int_t len);
 void ngx_http_lua_log_client_error(ngx_log_t *log, ngx_uint_t level,
     u_char *buf, size_t len);
     
@@ -111,7 +108,7 @@ static ngx_command_t ngx_http_lua_client_cmds[] = {
       offsetof(ngx_http_lua_client_main_conf_t, port),
       NULL },
 
-    { ngx_string("lua_client_ip"),
+    { ngx_string("lua_client_host"),
       NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
       ngx_conf_set_str_slot,
       NGX_HTTP_MAIN_CONF_OFFSET,
@@ -161,6 +158,7 @@ ngx_http_lua_client_create_main_conf(ngx_conf_t *cf)
     }
 
     lcmcf->pool = cf->pool;
+    lcmcf->log = cf->log;
     lcmcf->port = NGX_CONF_UNSET;
 
     return lcmcf;
@@ -197,37 +195,40 @@ ngx_http_lua_client_init_worker(ngx_cycle_t *cycle)
     /* init in the first child process slot */
     if (slot % worker_num == 0) {
         /* init socket */
-        fd = ngx_socket(AF_INET,SOCK_STREAM, 0);
+        fd = ngx_socket(AF_INET, SOCK_STREAM, 0);
         if (fd == (ngx_socket_t) -1) {
+            ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "[lua client] ngx_socket() failed");
             goto failed;
         }
         server_sockaddr.sin_family = AF_INET;
 
-        if (lcmcf->port == NGX_CONF_UNSET) {
+        if (lcmcf->port != NGX_CONF_UNSET) {
             server_sockaddr.sin_port = htons(lcmcf->port);
         } else {
             server_sockaddr.sin_port = htons(8220);
         }
 
-        if (lcmcf->host.len == 0) {
-            server_sockaddr.sin_addr.s_addr = inet_addr("127.0.0.1");
-        } else {
+        if (lcmcf->host.len != 0) {
             server_sockaddr.sin_addr.s_addr = ngx_inet_addr(lcmcf->host.data, lcmcf->host.len);
+        } else {
+            server_sockaddr.sin_addr.s_addr = inet_addr("127.0.0.1");
         }
 
         if (bind(fd, (struct sockaddr *)&server_sockaddr, sizeof(server_sockaddr)) == -1)
         {
+            ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "[lua client] bind() failed");
             goto failed;
         }
 
         if (listen(fd, NGX_LISTEN_BACKLOG) == -1)
         {
+            ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "[lua client] listen() failed");
             goto failed;
         }
 
         /* succtxess open fifo */
         p = ngx_alloc(sizeof(ngx_event_t) + sizeof(ngx_connection_t),
-                  ngx_cycle->log);
+                  lcmcf->log);
         if (p == NULL) {
             goto failed;
         }
@@ -242,7 +243,7 @@ ngx_http_lua_client_init_worker(ngx_cycle_t *cycle)
         lcmcf->fd = fd;
         lcmcf->connection = c;
         lcmcf->lua = ngx_http_lua_init_vm(NULL, cycle, cycle->pool, lmcf,
-                                         ngx_cycle->log, NULL);
+                                         lcmcf->log, NULL);
 
         ngx_http_lua_client_init_fake_conf(cycle, lcmcf);
 
@@ -254,9 +255,9 @@ ngx_http_lua_client_init_worker(ngx_cycle_t *cycle)
         ev->active = 0;
         ev->data = c;
         ev->handler = ngx_http_lua_client_create_connect;
-        ev->log = ngx_cycle->log;
+        ev->log = lcmcf->log;
         if (ngx_add_event(ev, NGX_READ_EVENT, 0) != NGX_OK) {
-            //TODO:error
+            ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno, "[lua client] ngx_add_event() failed");
         }
     }
 
@@ -270,7 +271,7 @@ failed:
         ngx_close_socket(fd);
     }
 
-    return NGX_ERROR;
+    return NGX_OK;
 }
 
 void
@@ -530,6 +531,7 @@ ngx_http_lua_client_create_connect(ngx_event_t *ev)
 
     c->log->writer = ngx_http_lua_log_client_error;
     c->log->data = cctx;
+    /* highest level */
     c->log->log_level = NGX_LOG_DEBUG;
 
     c->fd = conn_fd;
@@ -542,14 +544,16 @@ ngx_http_lua_client_create_connect(ngx_event_t *ev)
     cctx->fd = conn_fd;
     cctx->data = lcmcf;
     cctx->pool = pool;
-    cctx->log = lcmcf->log;
 
     conn_ev->active = 0;
     conn_ev->data = c;
     conn_ev->handler = ngx_http_lua_client_handler;
     conn_ev->log = ev->log;
+
+    ngx_http_lua_log_client_error(c->log, 0, LOG_STR, LOG_LEN);
+
     if (ngx_add_event(conn_ev, NGX_READ_EVENT, 0) != NGX_OK) {
-        //TODO:error
+        ngx_log_error(NGX_LOG_ALERT, lcmcf->log, ngx_errno, "[lua client] ngx_add_event() failed");
     }
     return;
 
@@ -621,12 +625,12 @@ ngx_http_lua_client_read(ngx_http_lua_client_ctx_connect_t *cctx, ngx_int_t fd)
     recv(fd, buf, BUFFER_SIZE, 0);
 
     h = (ngx_http_lua_client_header *)buf;
-    if (h->len > BUFFER_SIZE - (ngx_int_t) sizeof(ngx_http_lua_client_header)) {
+    if (h->len > (ngx_int_t) (BUFFER_SIZE - HEADER_SIZE)) {
         /* too long*/
         return NGX_ERROR;
     }
 
-    p = buf + sizeof(ngx_http_lua_client_header);
+    p = buf + HEADER_SIZE;
 
     if (h->type & NGX_HTTP_LUA_CLI_FILE) {
         cctx->type = h->type;
@@ -685,6 +689,7 @@ error:
                               err);
     return NGX_ERROR;
 }
+
 
 static ngx_int_t
 ngx_http_lua_client_by_chunk(lua_State *L, ngx_http_request_t *r)
@@ -777,13 +782,15 @@ failed:
     return NGX_ERROR;
 }
 
+
 ngx_chain_t *
 ngx_http_lua_client_send_chain(ngx_connection_t *c, ngx_chain_t *in, off_t limit)
 {
-    ngx_int_t      fd;
-    int            len = 0;
-    u_char        *s;
-    ngx_chain_t   *p;
+    ngx_int_t                    fd;
+    ngx_http_lua_client_header  *h;
+    u_char                      *s;
+    ngx_chain_t                 *p;
+    ngx_int_t                    len = 0;
 
     p = in;
     while (p) {
@@ -792,33 +799,27 @@ ngx_http_lua_client_send_chain(ngx_connection_t *c, ngx_chain_t *in, off_t limit
     }
 
     fd = c->fd;
-    s = ngx_palloc(c->pool, len);
+    s = ngx_palloc(c->pool, len + HEADER_SIZE);
     if (s == NULL) {
         //TODO: log
         return in;
     }
+    h = (ngx_http_lua_client_header *) s;
+    h->len = len;
 
-    len = 0;
+    len = HEADER_SIZE;
     while (in) {
         ngx_memmove(s + len, in->buf->pos, in->buf->last - in->buf->pos);
         len += in->buf->last - in->buf->pos;
         in = in->next;
     }
 
-    ngx_http_lua_client_sender(fd, s, len);
+    if (send(fd, s, len, 0) == -1) {
+        //TODO: error
+    }
     
     return in;
 }
-
-
-ngx_int_t
-ngx_http_lua_client_sender(ngx_int_t fd, u_char *buf, ngx_int_t len)
-{
-    //TODO: send the header
-    send(fd, buf, len, 0);
-    return NGX_OK;
-}
-
 
 void ngx_http_lua_log_client_error(ngx_log_t *log, ngx_uint_t level,
     u_char *buf, size_t len)
