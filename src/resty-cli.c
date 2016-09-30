@@ -18,7 +18,7 @@
 
 #define FIFO_NAME "/tmp/nginx_fifo"
 #define BUFFER_SIZE 4096
-#define VERSION 0.1
+#define VERSION "0.1"
 
 #define RESTY_CLI_FILE         0x00000001
 #define RESTY_CLI_CODE         0x00000002
@@ -44,10 +44,12 @@ typedef struct {
 
 void usage()
 {
-    printf("resty-client version: %f\n", VERSION);
-    printf("Usage: resty-cli [-?h] [-e code] [-f filename]\n");
+    printf("resty-client version: %s\n", VERSION);
+    printf("Usage: resty-cli [-?] [-h host] [-p port] [-e code] [-f filename]\n");
     printf("Options:\n");
-    printf("  -?,-h         : this help\n");
+    printf("  -?            : this help\n");
+    printf("  -h host       : set the connection host address, default setting is 127.0.0.1\n");
+    printf("  -p port       : set the connection port, default setting is 8220\n");
     printf("  -e code       : execute the CODE and return the result\n");
     printf("  -f filename   : execute the file's content and return the result\n");
     exit(EXIT_SUCCESS);
@@ -57,53 +59,71 @@ void get_args(int argc, char *argv[], resty_client_context *ctx)
 {
     char   *p;
     FILE   *fp;
-    int     len;
+    int     len, i;
+    
+    ctx->host = NULL;
+    ctx->port = -1;
+    ctx->type = -1;
 
-    p = (char *) argv[1];
-    if (argc > 3) {
-        usage();
-    } else if ('-' == p[0]) {
-        if (p[1] == 'h' || p[1] == '?') {
+    for (i = 1; i < argc; i ++) {
+        p = (char *) argv[i];
+        if ('-' == p[0]) {
+            if (p[1] == '?') {
             usage(); 
-        } else if (p[1] == 'e') {
-            ctx->type = RESTY_CLI_CODE;
-        } else if (p[1] == 'f') {
-            ctx->type = RESTY_CLI_FILE;
-        } else {
-            usage(); 
+            } else if (p[1] == 'h') {
+                ctx->host = (char *)argv[i + 1];
+                
+                i ++;
+            } else if (p[1] == 'p') {
+                ctx->port = atoi(argv[i + 1]);
+                
+                i ++;
+            } else if (p[1] == 'e') {
+                ctx->type = RESTY_CLI_CODE;
+                ctx->code = argv[i + 1];
+                
+                i ++;
+            } else if (p[1] == 'f') {
+                ctx->type = RESTY_CLI_FILE;
+                fp = fopen((char *)argv[i + 1], "r");
+                if (! fp) {
+                    printf("Can't open the file: %s, %s.\n", argv[i + 1], strerror(errno));
+                    exit(EXIT_FAILURE);
+                }
+                fseek(fp, 0, SEEK_END);
+                len = ftell(fp);
+                ctx->code = malloc(len + 1);
+                rewind(fp);
+                fread(ctx->code, 1, len, fp);
+                ctx->code[len] = '\0';
+                fclose(fp);
+                
+                i ++;
+            } else {
+                usage(); 
+            }
         }
-    } else {
-        usage();
     }
     
-    if (ctx->type == RESTY_CLI_CODE) {
-        ctx->code = argv[2];
-    } else if (ctx->type == RESTY_CLI_FILE) {
-        fp = fopen((char *)argv[2], "r");
-        if (! fp) {
-            printf("Can't open the file: %s, %s.\n", argv[2], strerror(errno));
-            exit(EXIT_FAILURE);
-        }
-        fseek(fp, 0, SEEK_END);
-        len = ftell(fp);
-        ctx->code = malloc(len + 1);
-        rewind(fp);
-        fread(ctx->code, 1, len, fp);
-        ctx->code[len] = '\0';
-        fclose(fp);
+    if (ctx->type < 0) {
+        usage();
     }
 }
 
 int connection(resty_client_context *ctx)
 {
     struct sockaddr_in servaddr;
+    int                port;
+    char              *host;
 
     ctx->fd = socket(AF_INET,SOCK_STREAM, 0);
 
     memset(&servaddr, 0, sizeof(servaddr));
     servaddr.sin_family = AF_INET;
-    servaddr.sin_port = htons(8220);
-    servaddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+    port = ctx->port > 0 ? ctx->port : 8220;
+    host = ctx->host ? ctx->host : "127.0.0.1";
+    servaddr.sin_port = htons(port);
+    servaddr.sin_addr.s_addr = inet_addr(host);
     
     if (connect(ctx->fd, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
     {
