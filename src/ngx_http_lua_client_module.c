@@ -632,24 +632,16 @@ ngx_http_lua_client_read(ngx_http_lua_client_ctx_connect_t *cctx, ngx_int_t fd)
 
     p = buf + HEADER_SIZE;
 
-    if (h->type & NGX_HTTP_LUA_CLI_FILE) {
-        cctx->type = h->type;
-        cctx->code_src.data = ngx_palloc(cctx->pool, h->len);
-        if (cctx->code_src.data == NULL) {
-            return NGX_ERROR;
-        }
-
-        ngx_copy(cctx->code_src.data, p, h->len);
-        cctx->code_src.len = h->len;
-        
-        return NGX_OK;
-    } else if (h->type & NGX_HTTP_LUA_CLI_CODE) {
-        cctx->type = h->type;
-        
-        return NGX_OK;
+    cctx->type = h->type;
+    cctx->code_src.data = ngx_palloc(cctx->pool, h->len);
+    if (cctx->code_src.data == NULL) {
+        return NGX_ERROR;
     }
 
-    return NGX_ERROR;
+    ngx_copy(cctx->code_src.data, p, h->len);
+    cctx->code_src.len = h->len;
+    
+    return NGX_OK;
 }
 
 

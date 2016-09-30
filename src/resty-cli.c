@@ -132,7 +132,7 @@ int sender(resty_client_context *ctx)
     memmove(buffer, &h, HEADER_SIZE);
     memmove(p, ctx->code, h.len);
     
-    printf("Send code: %s\n", p);
+    //printf("Send code: %s\n", p);
     if (send(ctx->fd, buffer, h.len + HEADER_SIZE, 0) == -1) {
         printf("Send error: %s\n", strerror(errno));
         exit(EXIT_FAILURE);
@@ -165,7 +165,7 @@ int receiver(resty_client_context *ctx)
 
     
     /* wait for return */
-    printf("Return data:\n");
+    //printf("Return data:\n");
 
     do {
         execute_t = time(0);
